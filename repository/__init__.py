@@ -13,4 +13,16 @@ def get_repositories(root):
         for subdir in map(lambda dir: os.path.join(cwd, dir), dirs):
             if subdir.endswith('.svn'):
                 from .subversion import Subversion
+
                 yield Subversion(cwd, subdir)
+            elif subdir.endswith('.git'):
+                from .git import Git
+
+                if os.path.isdir(subdir) and os.path.islink(subdir):
+                    # If the `.git` "folder" is a symbolic link, the current
+                    # folder is for a Git clone that has its data storage
+                    # offset, such as a submodule.
+                    print("%s symbolic link - skipping \"submodules\" for now"
+                          % subdir)
+                elif os.path.isdir(subdir):
+                    yield Git(cwd, subdir)

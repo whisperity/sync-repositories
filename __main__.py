@@ -11,6 +11,14 @@ import sys
 from credentials import keyring as kr
 import repository
 
+# Go into askpass-wrapper mode if the environment specifies it.
+if 'SR_ASKPASS' in os.environ:
+    from credentials import auto_askpass
+    auto_askpass.execute()
+
+    # Make sure execution doesn't flow through.
+    raise RuntimeError("askpass_wrapper didn't terminate properly.")
+
 
 if __name__ == '__main__':
     ARGS = argparse.ArgumentParser(

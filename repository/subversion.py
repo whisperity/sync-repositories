@@ -59,8 +59,8 @@ class Subversion(Repository):
                 return True
             except subprocess.CalledProcessError as cpe:
                 print("Update failed for '%s':" % path, file=sys.stderr)
-                print(cpe.output)
-                print(str(cpe))
+                print(cpe.output, file=sys.stderr)
+                print(str(cpe), file=sys.stderr)
                 return False
 
     def __init__(self, path, datadir):

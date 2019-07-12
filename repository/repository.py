@@ -15,6 +15,25 @@ class Repository:
         """
         raise NotImplementedError()
 
+    def get_remote_parts(self, remote):
+        """
+        Returns a tuple of (`protocol`, `server hostname`, `port` and
+        `object`).
+
+        If `port` is not known, it is replaced by `0`.
+
+        :returns: A pair of (url, parts) where `url` is the full URL, and
+            `parts` is a tuple containing `protocol`, `hostname`, `port` and
+            optionally the server sub-object (such as folder) in this order.
+        """
+        url = next(filter(lambda r: r[0] == remote, self.urls))[1]
+        parse_result = urllib.parse.urlparse(url, 'unk')
+        protocol = self.kind + '-' + parse_result.scheme
+        host = parse_result.hostname
+        port = parse_result.port if parse_result.port else 0
+
+        return (url, (protocol, host, port, self.get_remote_objname(remote)))
+
     def get_remotes(self):
         """
         Returns a generator that produces, for each remote repository URL known
