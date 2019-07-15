@@ -11,6 +11,7 @@ except ImportError:
           file=sys.stderr)
     raise
 
+from credentials import Backends
 from credentials.auto_askpass import create as auto_askpass_create
 from .repository import Repository, Updater
 
@@ -69,18 +70,18 @@ class Git(Repository):
                 if parsed.scheme in ['http', 'https', 'ftp', 'ftps']:
                     # HTTP and FTP protocol may authenticate with
                     # username-password.
-                    self._auth_methods[remote.name] = 'keyring'
+                    self._auth_methods[remote.name] = Backends.KEYRING
                 elif parsed.scheme in ['git', 'file']:
                     # The old-style Git and local-clone file protocol does not
                     # authenticate.
-                    self._auth_methods[remote.name] = 'none'
+                    self._auth_methods[remote.name] = None
                 else:
                     if not parsed.netloc and parsed.scheme:
                         # If "netloc" wasn't parsed, the repository URL is
                         # using the 'example.org:foobar.git' shorthand syntax
                         # for 'ssh://example.org/foobar.git'.
                         url = 'ssh://' + parsed.scheme + '/' + parsed.path
-                    self._auth_methods[remote.name] = 'ssh-agent'
+                    self._auth_methods[remote.name] = Backends.SSH_AGENT
 
                 self.urls.append((remote.name, url))
 
@@ -92,7 +93,7 @@ class Git(Repository):
         # configuration script, not just the repository's own.)
         config_command = ['git', 'config', '--get', 'alias.update']
         try:
-            subprocess.check_call(config_command, cwd=self.path)
+            subprocess.check_output(config_command, cwd=self.path)
             self.custom_update_command = True
         except subprocess.CalledProcessError:
             self.custom_update_command = False
@@ -105,6 +106,14 @@ class Git(Repository):
         url = next(filter(lambda r: r[0] == remote, self.urls))[1]
         parsed = urllib.parse.urlparse(url)
         return parsed.path if parsed.path else ""
+
+    def get_auth_requirement_detector_for(self, remote):
+        def _factory():
+            class _X():
+                def check(self):
+                    return False
+            return _X()
+        return _factory
 
     def get_updater_for(self, remote):
         if self._auth_methods[remote] == 'keyring':

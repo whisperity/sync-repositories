@@ -1,3 +1,4 @@
+from copy import deepcopy
 import subprocess
 import sys
 import urllib.parse
@@ -39,24 +40,33 @@ class Subversion(Repository):
             # The "non-interactive" stops the called SVN binary from asking
             # authentication details and turns it into a hard fail.
             command = ['svn', 'log', '--limit', str(1),
-                       '--no-auth-cache', '--non-interactive']
-            pwd = ''
+                       '--no-auth-cache', '--force-interactive']
+            original_command = command
             if self._credentials:
                 command.append('--username')
                 command.append(self._username)
-                pwd = self._password + '\n'
+
+                # Make sure we don't leak the password.
+                original_command = deepcopy(command)
+
+                command.append('--password')
+                command.append(self._password)
 
             try:
-                subprocess.check_output(command,
-                                        stderr=subprocess.STDOUT,
-                                        cwd=self._repository.path,
-                                        input=pwd,
-                                        encoding='utf-8')
+                subprocess.run(command,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT,
+                               encoding='utf-8',
+                               cwd=self._repository.path,
+                               check=True)
                 return False
             except subprocess.CalledProcessError as cpe:
                 if "Authentication failed" in cpe.output:
                     return True
-                raise
+                raise subprocess.CalledProcessError(cpe.returncode,
+                                                    original_command,
+                                                    cpe.output,
+                                                    cpe.stderr)
 
         def check(self):
             return self._fun()
@@ -70,7 +80,10 @@ class Subversion(Repository):
             # method will return False (as in "no authentication needed").
             # (Same result happens if the credentials are invalid on a server
             # that doesn't need them.)
-            return not self._fun()
+            print(self._username, self._password, self._fun())
+
+            return False
+            # return not self._fun()
 
     class UsernamePasswordUpdater(Updater):
         """
@@ -94,13 +107,18 @@ class Subversion(Repository):
             self._password = password
 
         def update(self):
-            command = ['svn', 'update', '--non-interactive', '--no-auth-cache']
-            pwd = ''
-
+            command = ['svn', 'update',
+                       '--no-auth-cache', '--non-interactive']
+            original_command = command
             if self._credentials:
                 command.append('--username')
                 command.append(self._username)
-                pwd = self._password + '\n'
+
+                # Make sure we don't leak the password.
+                original_command = deepcopy(command)
+
+                command.append('--password')
+                command.append(self._password)
 
             # Create the updater process.
             path = self._repository.path
@@ -109,17 +127,23 @@ class Subversion(Repository):
                 proc = subprocess.run(command,
                                       stdout=subprocess.PIPE,
                                       stderr=subprocess.STDOUT,
-                                      input=pwd,
                                       encoding='utf-8',
                                       cwd=path,
                                       check=True)
                 print(proc.stdout)
                 return True
             except subprocess.CalledProcessError as cpe:
-                print("Update failed for '%s':" % path, file=sys.stderr)
-                print(cpe.output, file=sys.stderr)
-                print(str(cpe), file=sys.stderr)
-                return False
+                try:
+                    # Raise an exception in which the password isn't shown.
+                    raise subprocess.CalledProcessError(cpe.returncode,
+                                                        original_command,
+                                                        cpe.output,
+                                                        cpe.stderr)
+                except subprocess.CalledProcessError as cpe2:
+                    print("Update failed for '%s':" % path, file=sys.stderr)
+                    print(cpe2.output, file=sys.stderr)
+                    print(str(cpe2), file=sys.stderr)
+                    return False
 
     def __init__(self, path, datadir):
         super().__init__(path, datadir, 'svn')

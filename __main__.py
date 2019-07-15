@@ -131,15 +131,21 @@ if __name__ == '__main__':
     for repo, data in repository_to_update_data.items():
         for remote, url, parts in data:
             print("Updating '%s' from remote '%s'..." % (repo.path, remote))
+            auth_backend = repo.get_authentication_method(remote)
+            update_success = False
 
-            # FIXME: This below is broken!
-            if repo.get_authentication_method(remote) == 'keyring':
+            if auth_backend == Backends.KEYRING:
                 kr_creds = keyring.get_credentials(*parts)
-                if kr_creds is False:
-                    # If the server is not authenticating, indicate this in the
-                    # credentials to pass.
+                if not kr_creds:
+                    # If the server doesn't require authentication, don't
+                    # provide credentials.
                     kr_creds = [(None, None)]
 
                 for kr_cred in kr_creds:
                     updater = repo.get_updater_for(remote)(*kr_cred)
-                    updater.update()
+                    update_success = update_success or updater.update()
+
+                if not update_success:
+                    print("Failed to update '%s' from remote '%s'!"
+                          % (repo.path, remote),
+                          file=sys.stderr)
