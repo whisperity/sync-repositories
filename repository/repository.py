@@ -63,6 +63,13 @@ class Repository:
         """
         raise NotImplementedError()
 
+    def get_auth_requirement_detector_for(self, remote):
+        """
+        Returns a factory function for the current repository that can be used
+        to instantiate an `AuthenticationRequirementChecker` instance.
+        """
+        raise NotImplementedError()
+
     def get_remote_objname(self, remote):
         """
         Get an identifying "object name" for the current repository and
@@ -73,6 +80,26 @@ class Repository:
 
     def __repr__(self):
         return '(' + type(self).__name__ + " @ " + self.path + ')'
+
+
+class AuthenticationRequirementChecker():
+    def __init__(self, repository):
+        self._repository = repository
+
+    def check(self):
+        """
+        Performs checking for whether the backend needs authentication.
+        :return: Whether authentication is needed.
+        """
+        raise NotImplementedError()
+
+    def check_credentials(self):
+        """
+        If the checker supports checking validy of credentials, performs this
+        step.
+        :return: Whether the credentials pass.
+        """
+        raise NotImplementedError()
 
 
 class Updater:

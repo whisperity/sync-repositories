@@ -1,5 +1,5 @@
 """
-SYNOPSIS: Helper script that acts as an 'askpass' program, but in fact just
+SYNOPSIS: Wrapper script that acts as an 'askpass' program, but in fact just
           returns the data stored in the keyring.
 """
 

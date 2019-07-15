@@ -10,10 +10,68 @@ except ImportError:
           file=sys.stderr)
     raise
 
-from .repository import Repository, Updater
+from credentials import Backends
+from .repository import AuthenticationRequirementChecker, Repository, Updater
 
 
 class Subversion(Repository):
+    class UsernamePasswordAuthenticationChecker(
+            AuthenticationRequirementChecker):
+        """
+        Checks whether the given SVN repository needs authentication.
+        """
+        def __init__(self, repository, username=None, password=None):
+            super().__init__(repository)
+
+            if username is None and password is None:
+                self._credentials = False
+            elif username is not None and password is not None:
+                self._credentials = True
+            else:
+                raise ValueError("Authentication check for SVN repositories "
+                                 "with either both username and password, or "
+                                 "none of it.")
+
+            self._username = username
+            self._password = password
+
+        def _fun(self):
+            # The "non-interactive" stops the called SVN binary from asking
+            # authentication details and turns it into a hard fail.
+            command = ['svn', 'log', '--limit', str(1),
+                       '--no-auth-cache', '--non-interactive']
+            pwd = ''
+            if self._credentials:
+                command.append('--username')
+                command.append(self._username)
+                pwd = self._password + '\n'
+
+            try:
+                subprocess.check_output(command,
+                                        stderr=subprocess.STDOUT,
+                                        cwd=self._repository.path,
+                                        input=pwd,
+                                        encoding='utf-8')
+                return False
+            except subprocess.CalledProcessError as cpe:
+                if "Authentication failed" in cpe.output:
+                    return True
+                raise
+
+        def check(self):
+            return self._fun()
+
+        def check_credentials(self):
+            if not self._credentials:
+                raise NotImplementedError()
+
+            # Need to invert the result here, because _fun() returns whether
+            # authentication is needed. If credentials are supplied, then the
+            # method will return False (as in "no authentication needed").
+            # (Same result happens if the credentials are invalid on a server
+            # that doesn't need them.)
+            return not self._fun()
+
     class UsernamePasswordUpdater(Updater):
         """
         Updates a Subversion repository working copy with optionally providing
@@ -51,7 +109,7 @@ class Subversion(Repository):
                 proc = subprocess.run(command,
                                       stdout=subprocess.PIPE,
                                       stderr=subprocess.STDOUT,
-                                      input=pwd if pwd else None,
+                                      input=pwd,
                                       encoding='utf-8',
                                       cwd=path,
                                       check=True)
@@ -80,11 +138,18 @@ class Subversion(Repository):
     def get_authentication_method(self, remote):
         # If SVN repositories authenticate, they only authenticate with
         # username-password combination.
-        return 'keyring'
+        return Backends.KEYRING
 
     def get_remote_objname(self, remote):
         # Use the repository's path under the server as the "object name".
         return urllib.parse.urlparse(self.urls[0][1]).path
+
+    def get_auth_requirement_detector_for(self, remote):
+        def _factory(username=None, password=None):
+            return Subversion.UsernamePasswordAuthenticationChecker(self,
+                                                                    username,
+                                                                    password)
+        return _factory
 
     def get_updater_for(self, remote):
         def _factory(username, password):

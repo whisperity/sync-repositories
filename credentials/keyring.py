@@ -41,9 +41,11 @@ class SecretStorage():
 
         return SecretStorage(bus, def_collection)
 
-    def get_credentials(self, protocol, server, port, objname=None):
+    def is_requiring_authentication(self, protocol, server, port,
+                                    objname=None):
         """
-        Retrieve the stored credentials for a specified remote server.
+        Retrieve whether the specified server is known to require
+        authentication.
 
         :param protocol: The protocol that is used to communicate with the
             server.
@@ -51,12 +53,10 @@ class SecretStorage():
         :param port: The server's port.
         :param objname: (Optional) Constrain the search of credentials to the
             given shared authentication object.
-        :return: A list of credential pairs (username, password) if the server
-            is authenticating, and credentials are known.
-            An empty list, if the server is known to be authenticating, but no
-            credentials are known. (This case should rarely happen!)
-            A `False` if the server is known not to be authenticating.
-            `None` if no knowledge exists about the server.
+        :return: True if the server requires authentication.
+            False if it known that it does not.
+            Return None if the authentication "status" of the server is not
+            known.
         """
         # First, check if the server *is* authenticating.
         nattrs = {
@@ -72,7 +72,35 @@ class SecretStorage():
         note = next(notes, None)
         if not note:
             return None
-        if note.get_secret().decode('utf-8') == 'False':
+
+        secret = note.get_secret().decode('utf-8')
+        if secret == 'False':
+            return False
+        elif secret == 'True':
+            return True
+        else:
+            raise ValueError("Non-boolean secret value stored for "
+                             "authentication knowledge.")
+
+    def get_credentials(self, protocol, server, port, objname=None):
+        """
+        Retrieve the stored credentials for a specified remote server.
+
+        :param protocol: The protocol that is used to communicate with the
+            server.
+        :param server: The server's address.
+        :param port: The server's port.
+        :param objname: (Optional) Constrain the search of credentials to the
+            given shared authentication object.
+        :return: A list of credential pairs (username, password) if credentials
+            are known. Empty list if there are no credentials stored.
+        """
+        requires_authentication = self.is_requiring_authentication(protocol,
+                                                                   server,
+                                                                   port,
+                                                                   objname)
+
+        if requires_authentication is False:
             return False
 
         # Now search for the actual credentials.
@@ -122,7 +150,7 @@ class SecretStorage():
             label = "%s password for '%s' on '%s'" % (protocol, user, server)
         self._collection.create_item(label, attrs, password, replace=True)
 
-        self._set_authenticating(protocol, server, port, objname)
+        self.set_authenticating(protocol, server, port, objname)
 
     def delete_credential(self, protocol, server, port, user, objname=None):
         """
@@ -151,7 +179,8 @@ class SecretStorage():
         if not items:
             raise KeyError("No secret found for %s:%s:%s:%s" %
                            (protocol, server, port, user))
-        return next(items).delete()
+        for item in items:
+            item.delete()
 
     def delete_server(self, protocol, server, port):
         """
@@ -212,7 +241,7 @@ class SecretStorage():
         self._collection.create_item(label, attrs, str(is_authenticating),
                                      replace=True)
 
-    def _set_authenticating(self, protocol, server, port, objname=None):
+    def set_authenticating(self, protocol, server, port, objname=None):
         """
         Marks the given remote server as a connection that does need
         authentication.
@@ -264,7 +293,7 @@ def discuss_keyring_security():
         _security_headsup_shown = True
 
 
-def ask_user_for_password(keyring, url, parts):
+def ask_user_for_password(keyring, url, parts, can_be_empty=True):
     """
     Helper method that nicely asks the user for the authentication credentials
     for the given remote server.
@@ -273,23 +302,36 @@ def ask_user_for_password(keyring, url, parts):
         prompting the user.
     :param parts: The tuple (protocol, server, port, objname) to save the
         credentials for.
+    :param can_be_empty: Whether an empty username (indicating no
+        authentication) should be accepted.
     """
     print("Entering authentication details for '%s'..." % url)
-    print("Leave username EMPTY if you know the server requires NO "
-          "authentication.")
-    username = input("Username (empty if no authentication): ")
-    if not username.strip():
-        # Empty username given.
-        print("No authentication needed.")
-        keyring.set_unauthenticated(*parts)
-    else:
-        password = ''
-        while not password.strip():
-            password = getpass.getpass("Password for user '%s': " % username)
-            if not password.strip():
-                print("ERROR: Empty password given.", file=sys.stderr)
 
-        protocol, server, port, objname = parts
-        keyring.set_credential(protocol, server, port,
-                               username, password,
-                               objname)
+    # Ask for username.
+    if can_be_empty:
+        print("Leave username EMPTY if you know the server requires NO "
+              "authentication.")
+    username = ''
+    while not username.strip():
+        username = input("Username (empty if no authentication): ")
+        if not username.strip():
+            if can_be_empty:
+                # Empty username given.
+                print("Setting no authentication needed.")
+                keyring.set_unauthenticated(*parts)
+                return
+            else:
+                print("ERROR: Empty username given.", file=sys.stderr)
+
+    # Ask for password.
+    password = ''
+    while not password.strip():
+        password = getpass.getpass("Password for user '%s': " % username)
+        if not password.strip():
+            print("ERROR: Empty password given.", file=sys.stderr)
+
+    protocol, server, port, objname = parts
+    keyring.set_credential(protocol, server, port,
+                           username, password,
+                           objname)
+    return (username, password)
