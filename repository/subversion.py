@@ -40,7 +40,7 @@ class Subversion(Repository):
             # The "non-interactive" stops the called SVN binary from asking
             # authentication details and turns it into a hard fail.
             command = ['svn', 'log', '--limit', str(1),
-                       '--no-auth-cache', '--force-interactive']
+                       '--no-auth-cache', '--non-interactive']
             original_command = command
             if self._credentials:
                 command.append('--username')
@@ -80,10 +80,7 @@ class Subversion(Repository):
             # method will return False (as in "no authentication needed").
             # (Same result happens if the credentials are invalid on a server
             # that doesn't need them.)
-            print(self._username, self._password, self._fun())
-
-            return False
-            # return not self._fun()
+            return not self._fun()
 
     class UsernamePasswordUpdater(Updater):
         """
