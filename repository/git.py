@@ -11,12 +11,73 @@ except ImportError:
           file=sys.stderr)
     raise
 
+
+from credentials import auto_askpass
 from credentials import Backends
-from credentials.auto_askpass import create as auto_askpass_create
-from .repository import Repository, Updater
+from .repository import AuthenticationRequirementChecker, Repository, Updater
 
 
 class Git(Repository):
+    class UsernamePasswordAuthenticationChecker(
+            AuthenticationRequirementChecker):
+        """
+        Checking engine for Git repositories that might use username-password
+        based HTTP(S) authentication.
+        """
+
+        def __init__(self, repository, remote, parts,
+                     username=None, password=None):
+            super().__init__(repository)
+            self._remote = remote
+            self._parts = parts
+
+            if username is None and password is None:
+                self._credentials = False
+            elif username is not None and password is not None:
+                self._credentials = True
+            else:
+                raise ValueError("Authentication check for Git HTTP "
+                                 "repositories with either both username and "
+                                 "password, or none of it.")
+
+            self._username = username
+            self._password = password
+
+        def _fun(self):
+            command = ['git', 'remote', 'show', self._remote]
+
+            # Create an 'askpass' wrapper that will always return invalid, but
+            # if asked to return something, will signal us through a control
+            # file.
+            if not self._credentials:
+                env = auto_askpass.create(*self._parts)
+            else:
+                env = auto_askpass.create_with_credentials(self._username,
+                                                           self._password,
+                                                           *self._parts)
+
+            try:
+                subprocess.run(command,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT,
+                               encoding='utf-8',
+                               cwd=self._repository.path,
+                               check=True,
+                               env=env)
+                # If the call above succeeds, the repository did not need
+                # authentication.
+                return False
+            except subprocess.CalledProcessError as cpe:
+                if "Authentication failed" in cpe.output:
+                    return True
+                raise
+
+        def check(self):
+            return self._fun()
+
+        def check_credentials(self):
+            return not self._fun()
+
     class UsernamePasswordWrappingUpdater(Updater):
         """
         Updates a Git repository clone with optionally providing
@@ -36,7 +97,7 @@ class Git(Repository):
             # Wrap the authentication details into a dummy script, as Git
             # updating with username and password asks from an inner process,
             # and we can't feed STDIN into it.
-            env = auto_askpass_create(*self._parts)
+            env = auto_askpass.create(*self._parts)
 
             # Create the updater process.
             path = self._repository.path
@@ -108,26 +169,56 @@ class Git(Repository):
         return parsed.path if parsed.path else ""
 
     def get_auth_requirement_detector_for(self, remote):
-        def _factory():
-            class _X():
+        method = self._auth_methods[remote]
+
+        if method is None:
+            class _cls():
+                """
+                An authentication validator that always validates everything
+                for the case when no authentication is to be done.
+                """
+
                 def check(self):
                     return False
-            return _X()
+
+                def check_credentials(self):
+                    return True
+
+            def _factory():
+                return _cls()
+        elif method == Backends.KEYRING:
+            def _factory(username=None, password=None):
+                return Git.UsernamePasswordAuthenticationChecker(
+                    self, remote, self.get_remote_parts(remote)[1],
+                    username, password)
+        else:
+            class _cls():
+                """
+                An authentication validator that always validates everything
+                for the case when no authentication is to be done.
+                """
+
+                def check(self):
+                    return False
+
+                def check_credentials(self):
+                    return True
+
+            def _factory():
+                return _cls()
+            # raise NotImplementedError("Not implemented for %s" % remote)
+
         return _factory
 
     def get_updater_for(self, remote):
-        if self._auth_methods[remote] == 'keyring':
+        method = self._auth_methods[remote]
+        if method is None or method == Backends.KEYRING:
             def _factory(username, password):
                 # This function conveniently ignores the username and password
                 # argument, as Git username updating uses a wrapper script.
                 return Git.UsernamePasswordWrappingUpdater(
                     self, remote, self.get_remote_parts(remote)[1])
-            return _factory
-        elif self._auth_methods[remote] == 'none':
-            def _factory():
-                return False
-            return _factory
-        elif self._auth_methods[remote] == 'ssh-agent':
-            def _factory():
-                return False
-            return _factory
+        else:
+            raise NotImplementedError("Not implemented for %s" % remote)
+
+        return _factory
