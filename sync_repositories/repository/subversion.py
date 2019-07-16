@@ -6,12 +6,11 @@ import urllib.parse
 try:
     import svn.local
 except ImportError:
-    import sys
     print("Error! `svn` Python package is a dependency, please install.",
           file=sys.stderr)
     raise
 
-from credentials import Backends
+from sync_repositories.credentials import Backends
 from .repository import AuthenticationRequirementChecker, Repository, Updater
 
 

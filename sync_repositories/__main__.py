@@ -9,20 +9,20 @@ import os
 import subprocess
 import sys
 
-from credentials import Backends
-from credentials import keyring as kr
-import repository
-
-# Go into askpass-wrapper mode if the environment specifies it.
-if 'SR_ASKPASS' in os.environ:
-    from credentials import auto_askpass
-    auto_askpass.execute()
-
-    # Make sure execution doesn't flow through.
-    raise RuntimeError("askpass_wrapper didn't terminate properly.")
+from sync_repositories.credentials import Backends
+from sync_repositories.credentials import keyring as kr
+from sync_repositories.repository import get_repositories
 
 
-if __name__ == '__main__':
+def _main():
+    # Go into askpass-wrapper mode if the environment specifies it.
+    if 'SR_ASKPASS' in os.environ:
+        from sync_repositories.credentials import auto_askpass
+        auto_askpass.execute()
+
+        # Make sure execution doesn't flow through.
+        raise RuntimeError("askpass_wrapper didn't terminate properly.")
+
     ARGS = argparse.ArgumentParser(
         description="""Synchronise source control repositories found in the
         current tree.""",
@@ -37,8 +37,8 @@ if __name__ == '__main__':
                       dest='daemon',
                       action='store_true',
                       help="""Perform an automatic update of repositories,
-                           skipping a repository if user interaction would be
-                           necessary.""")
+                           skipping a repository if user interaction
+                           would be necessary.""")
     argv = ARGS.parse_args()
 
     keyring = kr.SecretStorage.get_storage()
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     repository_to_update_data = {}
 
     # Perform a check that every repository's authentication status is known.
-    for repo in repository.get_repositories(argv.root_folder):
+    for repo in get_repositories(argv.root_folder):
         repo_data = list()
 
         for remote, url, parts in repo.get_remotes():
@@ -149,3 +149,7 @@ if __name__ == '__main__':
                     print("Failed to update '%s' from remote '%s'!"
                           % (repo.path, remote),
                           file=sys.stderr)
+
+
+if __name__ == '__main__':
+    _main()

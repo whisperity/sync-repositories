@@ -6,14 +6,13 @@ import urllib.parse
 try:
     import git
 except ImportError:
-    import sys
     print("Error! `GitPython` is a dependency, please install.",
           file=sys.stderr)
     raise
 
 
-from credentials import auto_askpass
-from credentials import Backends
+from sync_repositories.credentials import auto_askpass
+from sync_repositories.credentials import Backends
 from .repository import AuthenticationRequirementChecker, Repository, Updater
 
 

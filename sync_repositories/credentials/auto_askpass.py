@@ -7,7 +7,7 @@ import os
 import sys
 import tempfile
 
-from credentials import keyring
+from sync_repositories.credentials import keyring
 
 
 def create(protocol, host, port, objname):
